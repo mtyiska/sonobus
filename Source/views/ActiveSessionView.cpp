@@ -41,7 +41,8 @@ ActiveSessionView::ActiveSessionView(SessionManager* sm,
         currentSessionId = sessionManager->getCurrentSessionId();
         setSessionInfo(sessionManager->getCurrentSessionName(),
                        sessionManager->getInviteUrl());
-        startTimer(pollIntervalMs);
+        startTimer(recordingTimerIntervalMs);
+        lastParticipantPollTime = Time::getMillisecondCounterHiRes();
         updateParticipantsUI();
     }
 }
@@ -74,12 +75,19 @@ void ActiveSessionView::setupUI()
     participantListLabel.setText("Loading...", dontSendNotification);
     participantListLabel.setColour(Label::textColourId, Colour(0xffaaaaaa));
     addAndMakeVisible(participantListLabel);
+    
+    // Recording timer label (initially hidden)
+    recordingTimerLabel.setText("00:00", dontSendNotification);
+    recordingTimerLabel.setFont(Font(18.0f, Font::bold));
+    recordingTimerLabel.setJustificationType(Justification::centred);
+    recordingTimerLabel.setColour(Label::textColourId, Colour(0xffe74c3c));
+    recordingTimerLabel.setVisible(false);
+    addAndMakeVisible(recordingTimerLabel);
 
     recordButton.setButtonText("Record");
     recordButton.setColour(TextButton::buttonColourId, Colour(0xff6c5ce7));
     recordButton.onClick = [this]() {
-        if (onRecordClicked)
-            onRecordClicked();
+        handleRecordClicked();
     };
     addAndMakeVisible(recordButton);
 
@@ -127,8 +135,8 @@ void ActiveSessionView::setSessionManager(SessionManager* sm)
             setSessionInfo(sessionManager->getCurrentSessionName(),
                            sessionManager->getInviteUrl());
             
-            if (api && !currentSessionId.isEmpty())
-                startTimer(pollIntervalMs);
+            startTimer(recordingTimerIntervalMs);
+            lastParticipantPollTime = Time::getMillisecondCounterHiRes();
             
             updateParticipantsUI();
         }
@@ -151,11 +159,147 @@ void ActiveSessionView::refreshParticipants()
     fetchAndUpdateParticipants();
 }
 
+void ActiveSessionView::clearRecordingInfo()
+{
+    isRecording = false;
+    recordingStartTime = 0.0;
+    recordingDuration = 0.0;
+    recordedFilePath = "";
+    recordingTimerLabel.setVisible(false);
+    recordButton.setButtonText("Record");
+    recordButton.setColour(TextButton::buttonColourId, Colour(0xff6c5ce7));
+}
+
 void ActiveSessionView::timerCallback()
 {
+    double currentTime = Time::getMillisecondCounterHiRes();
+    
+    // Update recording timer display if recording
+    if (isRecording)
+    {
+        updateRecordingTimerDisplay();
+    }
+    
+    // Poll participants at the slower interval
     if (api && !currentSessionId.isEmpty())
-        fetchAndUpdateParticipants();
+    {
+        if (currentTime - lastParticipantPollTime >= pollIntervalMs)
+        {
+            fetchAndUpdateParticipants();
+            lastParticipantPollTime = currentTime;
+        }
+    }
 }
+
+void ActiveSessionView::updateRecordingTimerDisplay()
+{
+    if (isRecording)
+    {
+        double elapsed = (Time::getMillisecondCounterHiRes() - recordingStartTime) / 1000.0;
+        recordingTimerLabel.setText(formatDuration(elapsed), dontSendNotification);
+    }
+}
+
+String ActiveSessionView::formatDuration(double seconds) const
+{
+    int totalSeconds = static_cast<int>(seconds);
+    int minutes = totalSeconds / 60;
+    int secs = totalSeconds % 60;
+    
+    return String::formatted("%02d:%02d", minutes, secs);
+}
+
+void ActiveSessionView::handleRecordClicked()
+{
+    if (!editor)
+    {
+        DBG("ActiveSessionView: No editor pointer, cannot control recording");
+        if (onRecordClicked)
+            onRecordClicked();
+        return;
+    }
+    
+    // Access processor through the editor's processor member
+    // SonobusAudioProcessorEditor inherits from AudioProcessorEditor which has getAudioProcessor()
+    auto* processorPtr = dynamic_cast<SonobusAudioProcessor*>(editor->getAudioProcessor());
+    if (!processorPtr)
+    {
+        DBG("ActiveSessionView: Could not get processor");
+        return;
+    }
+    auto& processor = *processorPtr;
+    
+    if (!isRecording)
+    {
+        // Start recording
+        DBG("ActiveSessionView: Starting recording...");
+        
+        // Generate a filename based on session name and timestamp
+        String timestamp = Time::getCurrentTime().formatted("%Y%m%d_%H%M%S");
+        String safeName = currentSessionName.isNotEmpty() ? currentSessionName : "session";
+        safeName = safeName.replaceCharacters(" /\\:*?\"<>|", "___________");
+        String filename = safeName + "_" + timestamp + ".flac";
+        
+        // Get the default recording directory from processor
+        auto parentDirUrl = processor.getDefaultRecordingDirectory();
+        
+        if (parentDirUrl.isEmpty())
+        {
+            DBG("ActiveSessionView: No recording directory set");
+            return;
+        }
+        
+        URL returl;
+        bool started = processor.startRecordingToFile(parentDirUrl, filename, returl);
+        
+        if (started)
+        {
+            isRecording = true;
+            recordingStartTime = Time::getMillisecondCounterHiRes();
+            
+            // Store the returned URL as the file path
+            if (returl.isLocalFile())
+                recordedFilePath = returl.getLocalFile().getFullPathName();
+            else
+                recordedFilePath = returl.toString(false);
+            
+            // Update UI
+            recordButton.setButtonText("Stop");
+            recordButton.setColour(TextButton::buttonColourId, Colour(0xffe74c3c));
+            recordingTimerLabel.setText("00:00", dontSendNotification);
+            recordingTimerLabel.setVisible(true);
+            
+            DBG("ActiveSessionView: Recording started to " + recordedFilePath);
+        }
+        else
+        {
+            DBG("ActiveSessionView: Failed to start recording");
+            recordedFilePath = "";
+        }
+    }
+    else
+    {
+        // Stop recording
+        DBG("ActiveSessionView: Stopping recording...");
+        
+        processor.stopRecordingToFile();
+        
+        isRecording = false;
+        recordingDuration = (Time::getMillisecondCounterHiRes() - recordingStartTime) / 1000.0;
+        
+        // Update UI
+        recordButton.setButtonText("Record");
+        recordButton.setColour(TextButton::buttonColourId, Colour(0xff6c5ce7));
+        // Keep timer visible showing final duration
+        recordingTimerLabel.setText(formatDuration(recordingDuration), dontSendNotification);
+        
+        DBG("ActiveSessionView: Recording stopped. Duration: " + String(recordingDuration) + "s");
+    }
+    
+    if (onRecordClicked)
+        onRecordClicked();
+}
+
 
 void ActiveSessionView::changeListenerCallback(ChangeBroadcaster* source)
 {
@@ -167,8 +311,8 @@ void ActiveSessionView::changeListenerCallback(ChangeBroadcaster* source)
             setSessionInfo(sessionManager->getCurrentSessionName(),
                            sessionManager->getInviteUrl());
             
-            if (api && !currentSessionId.isEmpty())
-                startTimer(pollIntervalMs);
+            startTimer(recordingTimerIntervalMs);
+            lastParticipantPollTime = Time::getMillisecondCounterHiRes();
             
             fetchAndUpdateParticipants();
             statusLabel.setText("Connected", dontSendNotification);
@@ -269,7 +413,31 @@ void ActiveSessionView::handleInviteClicked()
 
 void ActiveSessionView::handleEndSession()
 {
+    // Stop recording if in progress
+    if (isRecording && editor)
+    {
+        DBG("ActiveSessionView: Stopping recording before ending session...");
+        
+        auto* processorPtr = dynamic_cast<SonobusAudioProcessor*>(editor->getAudioProcessor());
+        if (processorPtr)
+        {
+            processorPtr->stopRecordingToFile();
+        }
+        
+        isRecording = false;
+        recordingDuration = (Time::getMillisecondCounterHiRes() - recordingStartTime) / 1000.0;
+        recordingTimerLabel.setText(formatDuration(recordingDuration), dontSendNotification);
+        DBG("ActiveSessionView: Recording stopped. Duration: " + String(recordingDuration) + "s");
+    }
+    
     stopTimer();
+    
+    // IMPORTANT: Capture the session ID NOW, before disconnecting/leaving
+    if (sessionManager)
+    {
+        endingSessionId = sessionManager->getCurrentSessionId();
+        DBG("ActiveSessionView: Captured session ID for upload: " + endingSessionId);
+    }
     
     if (onEndClicked)
         onEndClicked();
@@ -306,7 +474,12 @@ void ActiveSessionView::resized()
     participantsLabel.setBounds(bounds.removeFromTop(20));
     participantListLabel.setBounds(bounds.removeFromTop(25));
     
-    bounds.removeFromTop(30);
+    bounds.removeFromTop(15);
+    
+    // Recording timer (above buttons)
+    recordingTimerLabel.setBounds(bounds.removeFromTop(30));
+    
+    bounds.removeFromTop(15);
     
     int buttonWidth = 120;
     int buttonHeight = 40;

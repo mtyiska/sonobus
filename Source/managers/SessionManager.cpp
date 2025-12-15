@@ -144,6 +144,101 @@ void SessionManager::fetchRecentSessions(int limit)
     sendChangeMessage();
 }
 
+bool SessionManager::uploadStem(const String& sessionId,
+                                 const File& audioFile,
+                                 std::function<void(float progress)> progressCallback,
+                                 String& outError)
+{
+    DBG("SessionManager::uploadStem - Starting upload for session: " + sessionId);
+    DBG("SessionManager::uploadStem - File: " + audioFile.getFullPathName());
+    
+    if (!audioFile.existsAsFile())
+    {
+        outError = "Audio file does not exist";
+        return false;
+    }
+    
+    String useSessionId = sessionId.isEmpty() ? currentSessionId : sessionId;
+    if (useSessionId.isEmpty())
+    {
+        outError = "No session ID provided";
+        return false;
+    }
+    
+    // Step 1: Get presigned upload URL from API
+    if (progressCallback)
+        progressCallback(0.1f);
+    
+    String filename = audioFile.getFileName();
+    int64 fileSize = audioFile.getSize();
+    
+    // Determine content type based on extension
+    String contentType = "audio/flac";
+    String ext = audioFile.getFileExtension().toLowerCase();
+    if (ext == ".wav")
+        contentType = "audio/wav";
+    else if (ext == ".mp3")
+        contentType = "audio/mpeg";
+    else if (ext == ".ogg")
+        contentType = "audio/ogg";
+    
+    DBG("SessionManager::uploadStem - Requesting upload URL for: " + filename + " (" + String(fileSize) + " bytes)");
+    
+    // Use the existing API method
+    auto uploadInfo = api.requestStemUploadUrl(useSessionId, filename, contentType, fileSize);
+    
+    if (uploadInfo.uploadUrl.isEmpty() || uploadInfo.stemId.isEmpty())
+    {
+        outError = api.getLastError().isEmpty() ? "Failed to get upload URL" : api.getLastError();
+        DBG("SessionManager::uploadStem - Failed to get upload URL: " + outError);
+        return false;
+    }
+    
+    DBG("SessionManager::uploadStem - Got upload URL, stemId: " + uploadInfo.stemId);
+    
+    if (progressCallback)
+        progressCallback(0.2f);
+    
+    // Step 2: Upload file to S3 using the API's helper method
+    DBG("SessionManager::uploadStem - Uploading to S3...");
+    
+    if (progressCallback)
+        progressCallback(0.5f);
+    
+    bool uploadSuccess = api.uploadFileToS3(uploadInfo.uploadUrl, audioFile, contentType);
+    
+    if (!uploadSuccess)
+    {
+        outError = api.getLastError().isEmpty() ? "Failed to upload to S3" : api.getLastError();
+        DBG("SessionManager::uploadStem - S3 upload failed: " + outError);
+        return false;
+    }
+    
+    if (progressCallback)
+        progressCallback(0.8f);
+    
+    // Step 3: Mark upload as complete using the existing API method
+    DBG("SessionManager::uploadStem - Marking upload complete...");
+    
+    // Calculate approximate duration (assuming 44100 Hz sample rate for estimation)
+    int durationSeconds = 0;  // Let the server calculate from the file
+    
+    auto completedStem = api.completeStemUpload(useSessionId, uploadInfo.stemId, durationSeconds);
+    
+    if (completedStem.id.isEmpty())
+    {
+        outError = api.getLastError().isEmpty() ? "Failed to mark upload complete" : api.getLastError();
+        DBG("SessionManager::uploadStem - Failed to mark complete: " + outError);
+        return false;
+    }
+    
+    if (progressCallback)
+        progressCallback(1.0f);
+    
+    DBG("SessionManager::uploadStem - Upload completed successfully!");
+    return true;
+}
+
 void SessionManager::onSessionConnected()
 {
     DBG("SessionManager: Session connected");

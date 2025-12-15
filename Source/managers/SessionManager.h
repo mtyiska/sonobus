@@ -70,6 +70,12 @@ public:
     void fetchRecentSessions(int limit = 5);
     const Array<RecentSessionInfo>& getRecentSessions() const { return recentSessions; }
     
+    // Stem upload
+    bool uploadStem(const String& sessionId, 
+                    const File& audioFile,
+                    std::function<void(float progress)> progressCallback,
+                    String& outError);
+    
     // Called by editor when connection events occur
     void onSessionConnected();
     void onSessionDisconnected();

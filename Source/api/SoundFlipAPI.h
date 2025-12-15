@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "JuceHeader.h"
+#include <JuceHeader.h>
 #include "SoundFlipAuth.h"
 
 class SoundFlipAPI
@@ -11,135 +11,126 @@ class SoundFlipAPI
 public:
     SoundFlipAPI(SoundFlipAuth& auth);
     ~SoundFlipAPI();
-
-    //==============================================================================
-    // Connection Info (returned when creating/joining sessions)
     
+    // Structs for API responses
     struct ConnectionInfo
     {
         String server;
-        int port;
+        int port = 10998;
         String group;
         String password;
     };
-
-    //==============================================================================
-    // Participant Info
     
     struct Participant
     {
         String userId;
         String username;
         String avatar;
-        int64 joinedAt;
-        int64 leftAt;  // 0 if still active
+        int64 joinedAt = 0;
+        int64 leftAt = 0;
     };
-
-    //==============================================================================
-    // Collab Session Management
     
     struct CollabSession
     {
         String id;
         String inviteCode;
         String name;
-        String status;  // "active", "ended", "archived"
+        String status;
         String inviteUrl;
+        int stemCount = 0;
+        int durationSeconds = 0;
         ConnectionInfo connection;
         String createdById;
         String createdByUsername;
         String createdByAvatar;
         Array<Participant> participants;
-        int stemCount;
-        int durationSeconds;
-        int64 createdAt;
-        int64 endedAt;  // 0 if still active
-    };
-    
-    /** Create a new collab session */
-    CollabSession createCollabSession(const String& name = "");
-    
-    /** Get collab session by ID */
-    CollabSession getCollabSession(const String& sessionId);
-    
-    /** Get collab session by invite code */
-    CollabSession getCollabSessionByInviteCode(const String& inviteCode);
-    
-    /** Join a collab session using session ID or invite code */
-    CollabSession joinCollabSession(const String& sessionIdOrInviteCode);
-    
-    /** Leave a collab session */
-    bool leaveCollabSession(const String& sessionId);
-    
-    /** Update a collab session (name, status) - creator only */
-    CollabSession updateCollabSession(const String& sessionId, 
-                                      const String& name = "", 
-                                      const String& status = "");
-    
-    /** List user's collab sessions */
-    Array<CollabSession> listCollabSessions(const String& status = "", 
-                                            int limit = 20, 
-                                            int offset = 0);
-
-    //==============================================================================
-    // Stem Management
-    
-    struct UploadUrlResponse
-    {
-        String uploadUrl;
-        String stemId;
-        String s3Key;
-        int expiresIn;
+        int64 createdAt = 0;
+        int64 endedAt = 0;
     };
     
     struct Stem
     {
         String id;
         String filename;
+        String downloadUrl;
+        int64 sizeBytes = 0;
+        int durationSeconds = 0;
         String uploadedById;
         String uploadedByUsername;
         String uploadedByAvatar;
-        String downloadUrl;
-        int64 sizeBytes;
-        int durationSeconds;
-        int64 createdAt;
+        int64 createdAt = 0;
     };
     
-    /** Request presigned URL for stem upload */
+    struct UploadUrlResponse
+    {
+        String uploadUrl;
+        String stemId;
+        String s3Key;
+        int expiresIn = 3600;
+    };
+    
+    // Collab Session Management
+    CollabSession createCollabSession(const String& name = "");
+    CollabSession getCollabSession(const String& sessionId);
+    CollabSession getCollabSessionByInviteCode(const String& inviteCode);
+    CollabSession joinCollabSession(const String& sessionIdOrInviteCode);
+    bool leaveCollabSession(const String& sessionId);
+    CollabSession updateCollabSession(const String& sessionId, 
+                                       const String& name = "", 
+                                       const String& status = "");
+    Array<CollabSession> listCollabSessions(const String& status = "", 
+                                             int limit = 10, 
+                                             int offset = 0);
+    
+    // Stem Management
     UploadUrlResponse requestStemUploadUrl(const String& sessionId, 
-                                           const String& filename, 
-                                           const String& contentType,
-                                           int64 sizeBytes);
-    
-    /** Mark stem upload as complete */
+                                            const String& filename, 
+                                            const String& contentType,
+                                            int64 sizeBytes);
     Stem completeStemUpload(const String& sessionId, 
-                            const String& stemId, 
-                            int durationSeconds = 0);
-    
-    /** List stems for a session */
+                             const String& stemId, 
+                             int durationSeconds = 0);
     Array<Stem> listSessionStems(const String& sessionId);
-    
-    /** Delete a stem */
     bool deleteStem(const String& sessionId, const String& stemId);
-
-    //==============================================================================
-    // Helper: Upload file directly to S3 using presigned URL
     
+    // S3 Upload Helper
     bool uploadFileToS3(const String& presignedUrl, 
-                        const File& file, 
-                        const String& contentType);
-
-    //==============================================================================
-    // Error handling
+                         const File& file, 
+                         const String& contentType);
     
+    //==========================================================================
+    // Convenience aliases for SessionManager compatibility
+    //==========================================================================
+    
+    /** Convenience wrapper for requestStemUploadUrl with default sizeBytes */
+    UploadUrlResponse getUploadUrl(const String& sessionId, 
+                                    const String& filename, 
+                                    const String& contentType)
+    {
+        return requestStemUploadUrl(sessionId, filename, contentType, 0);
+    }
+    
+    /** Convenience wrapper for completeStemUpload that returns bool */
+    bool markStemComplete(const String& sessionId, 
+                          const String& stemId, 
+                          int64 fileSize)
+    {
+        // fileSize is not used by completeStemUpload, it uses durationSeconds instead
+        ignoreUnused(fileSize);
+        auto result = completeStemUpload(sessionId, stemId, 0);
+        return result.id.isNotEmpty();
+    }
+    
+    // Error handling
     String getLastError() const { return lastError; }
     int getLastStatusCode() const { return lastStatusCode; }
-
+    
 private:
     var makeRequest(const String& endpoint, 
                     const String& method = "GET",
                     const var& body = var());
     
+    // JSON parsing helpers
     CollabSession parseCollabSession(const var& json);
     Participant parseParticipant(const var& json);
     ConnectionInfo parseConnectionInfo(const var& json);
@@ -147,18 +138,9 @@ private:
     UploadUrlResponse parseUploadUrlResponse(const var& json);
     
     SoundFlipAuth& auth;
-    
-    //==============================================================================
-    // URLs - Development vs Production
-    
-    // Development URL (local testing)
-    String apiBaseUrl = "http://localhost:4400";
-    
-    // Production URL (uncomment for production)
-    // String apiBaseUrl = "https://api.soundflip.com";
-
+    String apiBaseUrl = "https://api.soundflip.io";
     String lastError;
     int lastStatusCode = 0;
-
+    
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SoundFlipAPI)
 };

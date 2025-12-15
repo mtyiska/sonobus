@@ -11,6 +11,7 @@
 #include "../views/StartSessionView.h"
 #include "../views/JoinSessionView.h"
 #include "../views/ActiveSessionView.h"
+#include "../views/EndSessionView.h"
 #include "../views/SettingsView.h"
 
 // Forward declaration
@@ -27,6 +28,7 @@ public:
         StartSession,
         JoinSession,
         ActiveSession,
+        EndSession,
         Settings
     };
 
@@ -49,6 +51,9 @@ private:
     
     /** Update HomeView with current user info from auth */
     void updateHomeViewUserInfo();
+    
+    /** Transition from ActiveSession to EndSession with recording info */
+    void transitionToEndSession();
 
     SoundFlipAuth& auth;
     SoundFlipAPI& api;
@@ -60,6 +65,7 @@ private:
     std::unique_ptr<StartSessionView> startSessionView;
     std::unique_ptr<JoinSessionView> joinSessionView;
     std::unique_ptr<ActiveSessionView> activeSessionView;
+    std::unique_ptr<EndSessionView> endSessionView;
     std::unique_ptr<SettingsView> settingsView;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ScreenManager)

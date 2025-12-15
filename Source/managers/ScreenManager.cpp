@@ -42,6 +42,7 @@ void ScreenManager::setupViews()
     startSessionView = std::make_unique<StartSessionView>(sessionManager, nullptr);
     joinSessionView = std::make_unique<JoinSessionView>(sessionManager, nullptr);
     activeSessionView = std::make_unique<ActiveSessionView>(sessionManager, nullptr, &api);
+    endSessionView = std::make_unique<EndSessionView>();
     settingsView = std::make_unique<SettingsView>();
 
     // Add as children (hidden initially)
@@ -50,6 +51,7 @@ void ScreenManager::setupViews()
     addChildComponent(startSessionView.get());
     addChildComponent(joinSessionView.get());
     addChildComponent(activeSessionView.get());
+    addChildComponent(endSessionView.get());
     addChildComponent(settingsView.get());
 
     // Setup callbacks
@@ -89,7 +91,29 @@ void ScreenManager::setupViews()
         showScreen(Screen::Home);
     };
 
+    // ActiveSessionView now transitions to EndSession instead of Home
     activeSessionView->onSessionEnded = [this]() {
+        transitionToEndSession();
+    };
+
+    // EndSessionView callbacks
+    endSessionView->setSessionManager(sessionManager);
+    
+    endSessionView->onUploadClicked = [this]() {
+        std::cout << "=== EndSessionView: Upload completed ===" << std::endl;
+    };
+    
+    endSessionView->onSaveLocallyClicked = [this]() {
+        std::cout << "=== EndSessionView: Saved locally ===" << std::endl;
+    };
+    
+    endSessionView->onDiscardClicked = [this]() {
+        std::cout << "=== EndSessionView: Recording discarded ===" << std::endl;
+    };
+    
+    endSessionView->onComplete = [this]() {
+        // Clear recording info from ActiveSessionView for next session
+        activeSessionView->clearRecordingInfo();
         showScreen(Screen::Home);
     };
 
@@ -101,6 +125,30 @@ void ScreenManager::setupViews()
         auth.logout();
     };
 }
+
+void ScreenManager::transitionToEndSession()
+{
+    std::cout << "=== transitionToEndSession ===" << std::endl;
+    
+    // Get the session ID that was captured BEFORE leaving the session
+    String sessionId = activeSessionView->getEndingSessionId();
+    
+    // Get recording info from ActiveSessionView
+    String recordedFilePath = activeSessionView->getRecordedFilePath();
+    double recordingDuration = activeSessionView->getRecordingDuration();
+    
+    std::cout << "    File path: " << recordedFilePath.toStdString() << std::endl;
+    std::cout << "    Duration: " << recordingDuration << std::endl;
+    std::cout << "    Session ID: " << sessionId.toStdString() << std::endl;
+    
+    // Configure EndSessionView
+    endSessionView->resetState();
+    endSessionView->setSessionId(sessionId);
+    endSessionView->setRecordingInfo(recordedFilePath, recordingDuration);
+    
+    showScreen(Screen::EndSession);
+}
+
 
 void ScreenManager::updateHomeViewUserInfo()
 {
@@ -131,6 +179,7 @@ void ScreenManager::hideAllViews()
     startSessionView->setVisible(false);
     joinSessionView->setVisible(false);
     activeSessionView->setVisible(false);
+    endSessionView->setVisible(false);
     settingsView->setVisible(false);
 }
 
@@ -164,6 +213,10 @@ void ScreenManager::showScreen(Screen screen)
             viewToShow = activeSessionView.get();
             break;
             
+        case Screen::EndSession:
+            viewToShow = endSessionView.get();
+            break;
+            
         case Screen::Settings:
             viewToShow = settingsView.get();
             break;
@@ -185,6 +238,7 @@ void ScreenManager::resized()
     startSessionView->setBounds(bounds);
     joinSessionView->setBounds(bounds);
     activeSessionView->setBounds(bounds);
+    endSessionView->setBounds(bounds);
     settingsView->setBounds(bounds);
 }
 

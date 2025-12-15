@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "../SonobusPluginProcessor.h"
 
 class SessionManager;
 class SonobusAudioProcessorEditor;
@@ -32,6 +33,13 @@ public:
     void refreshParticipants();
     
     void changeListenerCallback(ChangeBroadcaster* source) override;
+    
+    // Recording state accessors for EndSessionView
+    String getRecordedFilePath() const { return recordedFilePath; }
+    double getRecordingDuration() const { return recordingDuration; }
+    bool hasRecording() const { return recordedFilePath.isNotEmpty(); }
+    void clearRecordingInfo();
+    String getEndingSessionId() const { return endingSessionId; }
 
     std::function<void()> onEndClicked;
     std::function<void()> onRecordClicked;
@@ -43,20 +51,32 @@ private:
     void setupUI();
     void handleEndSession();
     void handleInviteClicked();
+    void handleRecordClicked();
     void updateParticipantsUI();
     void fetchAndUpdateParticipants();
+    void updateRecordingTimerDisplay();
+    String formatDuration(double seconds) const;
 
     SessionManager* sessionManager = nullptr;
     SonobusAudioProcessorEditor* editor = nullptr;
     SoundFlipAPI* api = nullptr;
     
     String currentSessionId;
-    static constexpr int pollIntervalMs = 60000;  // 60 seconds
+    static constexpr int pollIntervalMs = 60000;  // 60 seconds for participant polling
+    static constexpr int recordingTimerIntervalMs = 100;  // 100ms for smooth timer display
+
+    // Recording state
+    bool isRecording = false;
+    double recordingStartTime = 0.0;
+    double recordingDuration = 0.0;
+    String recordedFilePath;
+    String endingSessionId; 
 
     Label titleLabel;
     Label statusLabel;
     Label participantsLabel;
     Label participantListLabel;
+    Label recordingTimerLabel;
     TextButton recordButton;
     TextButton chatButton;
     TextButton inviteButton;
@@ -64,6 +84,9 @@ private:
     
     String currentSessionName;
     String currentInviteUrl;
+    
+    // Track last participant poll time
+    double lastParticipantPollTime = 0.0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ActiveSessionView)
 };

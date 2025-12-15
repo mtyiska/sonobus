@@ -108,6 +108,9 @@ var SoundFlipAPI::makeRequest(const String& endpoint,
 
 SoundFlipAPI::CollabSession SoundFlipAPI::createCollabSession(const String& name)
 {
+    DBG("=== SoundFlipAPI::createCollabSession ===");
+    DBG("  Requested name: " + name);
+    
     var body;
     DynamicObject::Ptr obj = new DynamicObject();
     
@@ -118,10 +121,29 @@ SoundFlipAPI::CollabSession SoundFlipAPI::createCollabSession(const String& name
     
     var response = makeRequest("/api/collab-sessions", "POST", body);
     
-    if (response.isVoid())
-        return CollabSession();
+    DBG("=== RAW API RESPONSE ===");
+    DBG(JSON::toString(response));
+    DBG("========================");
     
-    return parseCollabSession(response);
+    if (response.isVoid())
+    {
+        DBG("  ERROR: Response is void! lastError: " + lastError);
+        return CollabSession();
+    }
+    
+    auto session = parseCollabSession(response);
+    
+    DBG("=== PARSED SESSION ===");
+    DBG("  ID: " + session.id);
+    DBG("  Name: " + session.name);
+    DBG("  Invite Code: " + session.inviteCode);
+    DBG("  Connection Server: " + session.connection.server);
+    DBG("  Connection Port: " + String(session.connection.port));
+    DBG("  Connection Group: " + session.connection.group);
+    DBG("  Connection Password: " + session.connection.password);
+    DBG("======================");
+    
+    return session;
 }
 
 SoundFlipAPI::CollabSession SoundFlipAPI::getCollabSession(const String& sessionId)
@@ -358,6 +380,8 @@ SoundFlipAPI::CollabSession SoundFlipAPI::parseCollabSession(const var& json)
 {
     CollabSession session;
     
+    DBG("=== parseCollabSession ===");
+    
     session.id = json.getProperty("id", "").toString();
     session.inviteCode = json.getProperty("inviteCode", "").toString();
     session.name = json.getProperty("name", "").toString();
@@ -367,9 +391,15 @@ SoundFlipAPI::CollabSession SoundFlipAPI::parseCollabSession(const var& json)
     session.durationSeconds = (int)json.getProperty("durationSeconds", 0);
     
     // Parse connection info if present
+    DBG("  Has connection property: " + String(json.hasProperty("connection") ? "YES" : "NO"));
     if (json.hasProperty("connection"))
     {
+        DBG("  Connection value: " + JSON::toString(json["connection"]));
         session.connection = parseConnectionInfo(json["connection"]);
+    }
+    else
+    {
+        DBG("  WARNING: No 'connection' property in response!");
     }
     
     // Parse creator info
@@ -439,10 +469,19 @@ SoundFlipAPI::ConnectionInfo SoundFlipAPI::parseConnectionInfo(const var& json)
 {
     ConnectionInfo info;
     
+    DBG("=== parseConnectionInfo ===");
+    DBG("  Raw JSON: " + JSON::toString(json));
+    
     info.server = json.getProperty("server", "").toString();
     info.port = (int)json.getProperty("port", 10998);
     info.group = json.getProperty("group", "").toString();
     info.password = json.getProperty("password", "").toString();
+    
+    DBG("  Parsed server: " + info.server);
+    DBG("  Parsed port: " + String(info.port));
+    DBG("  Parsed group: " + info.group);
+    DBG("  Parsed password: " + info.password);
+    DBG("===========================");
     
     return info;
 }

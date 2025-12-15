@@ -76,9 +76,6 @@ SettingsView::SettingsView(std::function<AudioDeviceManager*()> getAudioDeviceMa
     signOutButton->addListener(this);
     signOutButton->setColour(TextButton::buttonColourId, Colour(0xffe74c3c));
     addAndMakeVisible(signOutButton.get());
-
-    // Populate devices on construction
-    // populateAudioDevices();
 }
 
 SettingsView::~SettingsView()
